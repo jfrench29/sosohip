@@ -647,14 +647,16 @@
     ctx.fillStyle = shirtColor;
     rr(cx - bodyW/2, groundY - bodyH*0.65, bodyW, bodyH*0.7, 8*s);
 
-    // head
+    // neck — sliver of skin between shirt and hair
     ctx.fillStyle = '#f2c9a0';
-    ctx.beginPath(); ctx.arc(cx, groundY - bodyH*0.65 - headR*0.7, headR, 0, 7); ctx.fill();
-    // hair cap over back of head
+    ctx.fillRect(cx - 4.5*s, groundY - bodyH*0.75, 9*s, 9*s);
+    // head — seen from behind, so it's ALL hair
+    const headY = groundY - bodyH*0.65 - headR*0.7;
     ctx.fillStyle = hairColor;
-    ctx.beginPath(); ctx.arc(cx, groundY - bodyH*0.65 - headR*0.7, headR, Math.PI*0.05, Math.PI*0.95, false);
-    ctx.fill();
-    ctx.fillRect(cx-headR, groundY - bodyH*0.65 - headR*0.9, headR*2, headR*0.7);
+    ctx.beginPath(); ctx.arc(cx, headY, headR, 0, 7); ctx.fill();
+    // soft shine on the hair
+    ctx.fillStyle = 'rgba(255,255,255,0.16)';
+    ctx.beginPath(); ctx.arc(cx - headR*0.33, headY - headR*0.35, headR*0.3, 0, 7); ctx.fill();
 
     // PONYTAIL — the signature. Swings opposite to the step.
     ctx.strokeStyle = hairColor; ctx.lineWidth = 7*s; ctx.lineCap='round';
