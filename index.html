@@ -3,17 +3,25 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<meta name="theme-color" content="#87c8e0">
+<meta name="theme-color" content="#7cc4ef">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Soso &amp; Hip">
+<meta name="description" content="Soso &amp; Hip Run — help two sisters sprint down the golf course, hopping golf balls, deer, and geese. How far can they get?">
+<meta property="og:title" content="Soso &amp; Hip Run">
+<meta property="og:description" content="Help sisters Soso &amp; Hip sprint down the golf course, hopping golf balls, startled deer, and geese. How far can they get?">
+<meta property="og:image" content="https://sosohip.com/icon-512.png">
+<meta property="og:url" content="https://sosohip.com/">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary">
+<link rel="icon" href="icon-192.png">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <title>Soso &amp; Hip Run</title>
 <style>
   html, body {
     margin: 0; padding: 0; height: 100%;
-    background: #0b1020; overflow: hidden;
+    background: linear-gradient(#101a30, #0b1020); overflow: hidden;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     touch-action: none; user-select: none; -webkit-user-select: none;
     -webkit-tap-highlight-color: transparent; overscroll-behavior: none;
@@ -34,7 +42,7 @@
 </head>
 <body>
 <div id="wrap"><canvas id="game"></canvas></div>
-<div id="hint">SPACE / tap to jump &nbsp;•&nbsp; hold for a higher hop</div>
+<div id="hint">SPACE / tap to jump &nbsp;•&nbsp; hold for a higher hop &nbsp;•&nbsp; P pause &nbsp;•&nbsp; M mute</div>
 <script>
 (() => {
   const canvas = document.getElementById('game');
@@ -84,7 +92,10 @@
   // ---- Game state ----
   let state, score, best, speed, dist, spawnTimer, scenTimer, shakeT;
   let bonus = 0, pickTimer = 0, landT = 0;
+  let gameT = 0, nextMile = 500, pickCombo = 0, lastPickT = -10;
+  let newBest = false;
   best = parseInt(localStorage.getItem('sosohip_best') || '0', 10);
+  let muted = localStorage.getItem('sosohip_mute') === '1';
 
   // ---- Tiny synth SFX (no audio files; unlocks on first tap) ----
   let AC = null;
@@ -94,6 +105,7 @@
     return AC;
   }
   function beep(f0, f1, dur, type, vol, when) {
+    if (muted) return;
     const a = ac(); if (!a) return;
     const t = a.currentTime + (when || 0);
     const o = a.createOscillator(), g = a.createGain();
@@ -111,11 +123,20 @@
     pick()  { beep(880, 1318, 0.10, 'sine', 0.10); beep(1318, 1760, 0.12, 'sine', 0.08, 0.07); },
     crash() { beep(220, 55, 0.42, 'sawtooth', 0.14); beep(160, 40, 0.5, 'square', 0.06, 0.05); },
     start() { beep(440, 880, 0.18, 'sine', 0.08); },
+    mile()  { beep(660, 990, 0.09, 'sine', 0.09); beep(880, 1320, 0.12, 'sine', 0.09, 0.09); },
   };
+  function toggleMute() {
+    muted = !muted;
+    localStorage.setItem('sosohip_mute', muted ? '1' : '0');
+  }
 
   const player = {
     lane: 0, y: 0, vy: 0, onGround: true, run: 0
   };
+
+  // The sisters' looks — Soso blonde & pink, Hip brunette & blue.
+  const SOSO = { hair:'#f7d36e', shade:'#d9a94e', shirt:'#e85d9e', skirt:'#ffd0e8', tie:'#ffffff', acc:'#e85d9e' };
+  const HIP  = { hair:'#6f4526', shade:'#523018', shirt:'#5b8cff', skirt:'#d6e4ff', tie:'#ffd84d', acc:'#5b8cff' };
 
   const GRAVITY = 2600;
   const JUMP_V = 900;
@@ -130,12 +151,13 @@
   const clouds = [];
   for (let i = 0; i < 5; i++) clouds.push({ x: Math.random()*W, y: 20+Math.random()*(HORIZON-50), s: .4+Math.random()*.7 });
 
-  // Two static rolling-hill silhouettes on the horizon (far layer, near layer).
+  // Static rolling-hill silhouettes on the horizon, far → near.
   const HILLS = [
+    { base: HORIZON+1, amp: 18, len: 260, off: 3.0,  clr: '#a9cf9b' },
     { base: HORIZON+2, amp: 26, len: 150, off: 0.0,  clr: '#8fbf7e' },
     { base: HORIZON+4, amp: 40, len: 210, off: 1.4,  clr: '#79ad68' },
   ];
-  const SCENERY = ['tree','tree','tree','tree','bush','cart','green','bunker','sgolfer'];
+  const SCENERY = ['tree','tree','tree','bush','bush','flowers','flowers','cart','green','bunker','sgolfer','pond'];
 
   // Obstacle kinds. h = how tall (world units) → informs jump clearance.
   const KINDS = [
@@ -151,6 +173,7 @@
     state = 'menu';
     score = 0; bonus = 0; dist = 0; speed = 0.42;
     spawnTimer = 0; scenTimer = 0; pickTimer = 0; shakeT = 0; landT = 0;
+    gameT = 0; nextMile = 500; pickCombo = 0; lastPickT = -10;
     obstacles.length = 0; scenery.length = 0; pickups.length = 0; parts.length = 0; popups.length = 0;
     player.lane = 0; player.y = 0; player.vy = 0; player.onGround = true; player.run = 0;
     for (let i = 0; i < 6; i++) spawnScenery(0.35 + i * 0.11);  // dress the menu backdrop
@@ -161,6 +184,7 @@
       state = 'play';
       score = 0; bonus = 0; dist = 0; speed = 0.42;
       spawnTimer = 0.6; scenTimer = 0.2; pickTimer = 2.2;
+      gameT = 0; nextMile = 500; pickCombo = 0; lastPickT = -10;
       obstacles.length = 0; pickups.length = 0; parts.length = 0; popups.length = 0;
       player.y = 0; player.vy = 0; player.onGround = true;
       sfx.start();
@@ -174,11 +198,14 @@
       life: .35 + Math.random()*.3, max: .65, clr, r: 2 + Math.random()*3.2
     });
   }
-  function popup(x, y, txt, clr) { popups.push({ x, y, txt, clr: clr||'#fff', life: 0.9 }); }
+  function popup(x, y, txt, clr, size, life) {
+    popups.push({ x, y, txt, clr: clr||'#fff', size: size||22, life: life||0.9 });
+  }
   function feetY() { return projY(PLAYER_Z); }
 
   function jump() {
     ac();  // unlock audio on first user gesture
+    if (state === 'paused') { state = 'play'; return; }
     if (state === 'menu' || state === 'over') { startGame(); return; }
     if (player.onGround) {
       player.vy = JUMP_V; player.onGround = false;
@@ -189,15 +216,41 @@
     }
   }
 
+  function togglePause() {
+    if (state === 'play') { state = 'paused'; holding = false; }
+    else if (state === 'paused') state = 'play';
+  }
+
   // ---- Input ----
   addEventListener('keydown', e => {
     if (e.code === 'Space' || e.code === 'ArrowUp') { e.preventDefault(); jump(); }
+    else if (e.code === 'KeyP') togglePause();
+    else if (e.code === 'KeyM') toggleMute();
   });
   addEventListener('keyup', e => { if (e.code === 'Space' || e.code === 'ArrowUp') holding = false; });
-  canvas.addEventListener('pointerdown', e => { e.preventDefault(); jump(); });
+
+  // Mute button hit-box (logical canvas coords)
+  const MUTE = { x: W-58, y: 12, w: 46, h: 36 };
+  function ptXY(e) {
+    const r = canvas.getBoundingClientRect();
+    return { x: (e.clientX - r.left) / r.width * W, y: (e.clientY - r.top) / r.height * H };
+  }
+  canvas.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    const p = ptXY(e);
+    if (p.x >= MUTE.x-6 && p.x <= MUTE.x+MUTE.w+6 && p.y >= MUTE.y-6 && p.y <= MUTE.y+MUTE.h+6) {
+      ac(); toggleMute(); return;
+    }
+    jump();
+  });
   canvas.addEventListener('pointerup', () => holding = false);
   canvas.addEventListener('pointercancel', () => holding = false);
   canvas.addEventListener('pointerleave', () => holding = false);
+
+  // Auto-pause when the tab/app goes to the background mid-run.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && state === 'play') { state = 'paused'; holding = false; }
+  });
 
   function spawn() {
     const k = KINDS[(Math.random() * KINDS.length) | 0];
@@ -220,7 +273,7 @@
   function tick(now) {
     let dt = Math.min(0.033, (now - last) / 1000); last = now;
     if (state === 'play') update(dt);
-    else animateIdle(dt);
+    else if (state !== 'paused') animateIdle(dt);
     render();
     requestAnimationFrame(tick);
   }
@@ -241,6 +294,14 @@
     const worldDz = speed * dt;      // how much z closes per frame
     dist += speed * dt * 60;
     score = Math.floor(dist) + bonus;
+    gameT += dt;
+
+    // milestone feedback so the speed ramp is *felt*
+    if (score >= nextMile) {
+      nextMile += 500;
+      sfx.mile();
+      popup(W/2, H*0.44, 'SPEED UP!', '#ffffff', 30, 1.3);
+    }
 
     // player run cycle + jump physics
     player.run += dt * (8 + speed*6);
@@ -257,11 +318,11 @@
     }
     if (landT > 0) landT -= dt;
 
-    // spawn
+    // spawn — the 0.8s floor keeps back-to-back obstacles humanly jumpable
     spawnTimer -= dt;
     if (spawnTimer <= 0) {
       spawn();
-      spawnTimer = Math.max(0.55, 1.25 - speed*0.6) * (0.7 + Math.random()*0.7);
+      spawnTimer = Math.max(0.8, (1.25 - speed*0.6) * (0.7 + Math.random()*0.7));
     }
 
     // move obstacles toward viewer
@@ -280,13 +341,17 @@
         const laneClose = Math.abs(o.lane - player.lane) < 0.55;
         if (laneClose && !cleared) {
           crash();
+        } else if (laneClose && cleared) {
+          // near-miss bonus: you jumped something that would have hit you
+          bonus += 10;
+          popup(projX(o.lane, PLAYER_Z), feetY() - 95, '+10', '#cfeeff', 18);
         }
       }
     }
     // cull
     for (let i = obstacles.length - 1; i >= 0; i--) if (obstacles[i].z < -0.1) obstacles.splice(i,1);
 
-    // golden golf balls — spawn, approach, collect
+    // golden golf balls — spawn, approach, collect (streaks build a combo)
     pickTimer -= dt;
     if (pickTimer <= 0) {
       pickups.push({ pickup: true, z: 1.0, lane: Math.random()*1.1 - 0.55, taken: false });
@@ -296,11 +361,14 @@
       p.z -= worldDz;
       if (!p.taken && p.z <= PLAYER_Z + 0.01 && Math.abs(p.lane - player.lane) < 0.5) {
         p.taken = true;
-        bonus += 25;
+        pickCombo = (gameT - lastPickT < 2.5) ? Math.min(pickCombo + 1, 5) : 1;
+        lastPickT = gameT;
+        const gain = 25 * pickCombo;
+        bonus += gain;
         sfx.pick();
         const px = projX(p.lane, PLAYER_Z);
         puff(px, feetY() - 30, 10, 'rgba(255,215,80,0.95)', 120, 90);
-        popup(px, feetY() - 70, '+25', '#ffd84d');
+        popup(px, feetY() - 70, '+' + gain + (pickCombo > 1 ? '  ×' + pickCombo : ''), '#ffd84d');
       }
     }
     for (let i = pickups.length - 1; i >= 0; i--) if (pickups[i].taken || pickups[i].z < -0.1) pickups.splice(i,1);
@@ -328,7 +396,6 @@
     if (score > best) { best = score; localStorage.setItem('sosohip_best', String(best)); newBest = true; }
     else newBest = false;
   }
-  let newBest = false;
 
   // ---- Render ----
   function render() {
@@ -350,12 +417,21 @@
   }
 
   function drawWorld() {
-    // sky
+    // sky — cool blue up top, warm and hazy at the horizon
     const sky = ctx.createLinearGradient(0,0,0,HORIZON);
-    sky.addColorStop(0, '#8fd3f4'); sky.addColorStop(1, '#dff4ff');
+    sky.addColorStop(0, '#7cc4ef'); sky.addColorStop(0.75, '#cdeafb'); sky.addColorStop(1, '#f0f6e0');
     ctx.fillStyle = sky; ctx.fillRect(0,0,W,HORIZON+2);
 
-    // rolling hills on the horizon (far layer, then nearer layer)
+    // sun with a soft glow
+    const sunX = W*0.80, sunY = 74;
+    const glow = ctx.createRadialGradient(sunX,sunY,6,sunX,sunY,64);
+    glow.addColorStop(0,'rgba(255,244,200,0.95)');
+    glow.addColorStop(0.35,'rgba(255,236,160,0.45)');
+    glow.addColorStop(1,'rgba(255,236,160,0)');
+    ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(sunX,sunY,64,0,7); ctx.fill();
+    ctx.fillStyle = '#fff6cf'; ctx.beginPath(); ctx.arc(sunX,sunY,20,0,7); ctx.fill();
+
+    // rolling hills on the horizon (far layer first)
     for (const h of HILLS) {
       ctx.fillStyle = h.clr;
       ctx.beginPath();
@@ -366,6 +442,10 @@
       }
       ctx.lineTo(W, h.base); ctx.closePath(); ctx.fill();
     }
+    // atmospheric haze pooling at the base of the hills
+    const haze = ctx.createLinearGradient(0,HORIZON-26,0,HORIZON+2);
+    haze.addColorStop(0,'rgba(240,248,255,0)'); haze.addColorStop(1,'rgba(240,248,255,0.55)');
+    ctx.fillStyle = haze; ctx.fillRect(0,HORIZON-26,W,28);
 
     // clouds
     ctx.fillStyle = 'rgba(255,255,255,0.9)';
@@ -399,8 +479,19 @@
     }
     ctx.lineTo(W,HORIZON+3); ctx.closePath(); ctx.fill();
 
-    // cart path — dark gray concrete, no center line
-    ctx.fillStyle = '#54565b';
+    // sandy shoulders flanking the cart path
+    ctx.fillStyle = '#cdbd8d';
+    ctx.beginPath();
+    ctx.moveTo(projX(-1.12,0.001), projY(0.001));
+    ctx.lineTo(projX( 1.12,0.001), projY(0.001));
+    ctx.lineTo(projX( 1.12,0.999), projY(0.999));
+    ctx.lineTo(projX(-1.12,0.999), projY(0.999));
+    ctx.closePath(); ctx.fill();
+
+    // cart path — concrete, hazier in the distance, no center line
+    const pave = ctx.createLinearGradient(0,HORIZON,0,H);
+    pave.addColorStop(0, '#6c6f78'); pave.addColorStop(1, '#4d4f55');
+    ctx.fillStyle = pave;
     ctx.beginPath();
     ctx.moveTo(projX(-1,0.001), projY(0.001));
     ctx.lineTo(projX( 1,0.001), projY(0.001));
@@ -459,9 +550,11 @@
     ctx.globalAlpha = 1;
     for (const q of popups) {
       ctx.globalAlpha = Math.min(1, q.life * 2);
-      ctx.fillStyle = q.clr;
-      ctx.font = '800 22px -apple-system, sans-serif';
+      ctx.font = '800 ' + q.size + 'px -apple-system, sans-serif';
       ctx.textAlign = 'center';
+      ctx.strokeStyle = 'rgba(20,40,60,0.35)'; ctx.lineWidth = 3;
+      ctx.strokeText(q.txt, q.x, q.y);
+      ctx.fillStyle = q.clr;
       ctx.fillText(q.txt, q.x, q.y);
     }
     ctx.globalAlpha = 1;
@@ -540,12 +633,15 @@
       ctx.fillStyle='rgba(0,0,0,0.16)';
       ctx.beginPath(); ctx.ellipse(x, gy, th*0.30, th*0.08, 0,0,7); ctx.fill();
       ctx.fillStyle='#6b4a2b'; ctx.fillRect(x-tw/2, gy-th*0.55, tw, th*0.55);
+      ctx.fillStyle='rgba(0,0,0,0.18)'; ctx.fillRect(x+tw*0.1, gy-th*0.55, tw*0.4, th*0.55);
       const cy = gy-th*0.72, cr = th*0.34;
       ctx.fillStyle='#2f7d3f';
       ctx.beginPath();
       ctx.arc(x, cy, cr,0,7); ctx.arc(x-cr*0.7, cy+cr*0.25, cr*0.72,0,7);
       ctx.arc(x+cr*0.7, cy+cr*0.25, cr*0.72,0,7); ctx.arc(x, cy-cr*0.55, cr*0.7,0,7);
       ctx.fill();
+      ctx.fillStyle='rgba(0,40,0,0.16)';
+      ctx.beginPath(); ctx.arc(x+cr*0.4, cy+cr*0.35, cr*0.55,0,7); ctx.fill();
       ctx.fillStyle='rgba(255,255,255,0.12)';
       ctx.beginPath(); ctx.arc(x-cr*0.3, cy-cr*0.35, cr*0.5,0,7); ctx.fill();
 
@@ -556,6 +652,29 @@
       ctx.beginPath();
       ctx.arc(x,gy-r*0.5,r,0,7); ctx.arc(x-r*0.8,gy-r*0.3,r*0.7,0,7); ctx.arc(x+r*0.8,gy-r*0.3,r*0.7,0,7);
       ctx.fill();
+
+    } else if (o.t === 'flowers') {
+      // a little wildflower patch on the rough
+      const cols = ['#ff8fb3','#ffd84d','#ffffff','#ffa4e0','#c17ae8'];
+      for (let i=0;i<6;i++){
+        const a = Math.sin(o.seed*97 + i*13.7)*22*s;
+        const b = Math.cos(o.seed*57 + i*9.1)*9*s;
+        ctx.fillStyle = '#2f7d3f';
+        ctx.fillRect(x+a-0.8*s, gy+b-4*s, 1.6*s, 4*s);
+        ctx.fillStyle = cols[(i + ((o.seed*10)|0)) % cols.length];
+        ctx.beginPath(); ctx.arc(x+a, gy+b-5*s, 3.2*s, 0, 7); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.7)';
+        ctx.beginPath(); ctx.arc(x+a, gy+b-5*s, 1.1*s, 0, 7); ctx.fill();
+      }
+
+    } else if (o.t === 'pond') {
+      const pw = 150*s, ph = 46*s;
+      ctx.fillStyle='#4e8e3f';
+      ctx.beginPath(); ctx.ellipse(x, gy, pw*0.54, ph*0.56, 0, 0, 7); ctx.fill();
+      ctx.fillStyle='#6fc3e8';
+      ctx.beginPath(); ctx.ellipse(x, gy, pw*0.5, ph*0.5, 0, 0, 7); ctx.fill();
+      ctx.fillStyle='rgba(255,255,255,0.35)';
+      ctx.beginPath(); ctx.ellipse(x - pw*0.12, gy - ph*0.10, pw*0.22, ph*0.14, -0.2, 0, 7); ctx.fill();
 
     } else if (o.t === 'green') {
       const gw = 120*s, gh = 44*s, fh = 92*s;
@@ -618,15 +737,16 @@
     const anchor = projY(z);   // scale about the ground line so feet stay planted
     ctx.save();
     ctx.translate(VPX, anchor); ctx.scale(sx, sy); ctx.translate(-VPX, -anchor);
-    drawGirl(VPX - gap/2, baseY, s, '#f4d06a', '#e85d9e'); // Soso — blonde, pink
-    drawGirl(VPX + gap/2, baseY, s, '#7a4a2b', '#5b8cff'); // Hip — brunette, blue
+    drawGirl(VPX - gap/2, baseY, s, SOSO);
+    drawGirl(VPX + gap/2, baseY, s, HIP);
     ctx.restore();
   }
 
-  // A simple character seen from BEHIND: head, swinging ponytail, torso, legs.
-  function drawGirl(cx, groundY, s, hairColor, shirtColor) {
-    const swing = Math.sin(player.run) ;             // ponytail + legs
-    const step = Math.sin(player.run) * 6 * s;
+  // A sister seen from BEHIND: hair with bouncy ponytail, tee shirt, skirt,
+  // swinging arms and legs, sneakers with her accent stripe.
+  function drawGirl(cx, groundY, s, c) {
+    const swing = Math.sin(player.run);
+    const step = swing * 6 * s;
     const bodyW = 34 * s, bodyH = 46 * s, headR = 15 * s;
 
     // shadow (fades while airborne)
@@ -634,75 +754,196 @@
     ctx.fillStyle = `rgba(0,0,0,${0.22*(1-air*0.7)})`;
     ctx.beginPath(); ctx.ellipse(cx, projY(PLAYER_Z), bodyW*0.55, bodyW*0.2, 0, 0, 7); ctx.fill();
 
-    // legs (behind torso), alternating
-    ctx.fillStyle = '#f0e9dc';
-    ctx.fillRect(cx - bodyW*0.28, groundY - bodyH*0.18, bodyW*0.22, bodyH*0.4 + step);
-    ctx.fillRect(cx + bodyW*0.06, groundY - bodyH*0.18, bodyW*0.22, bodyH*0.4 - step);
-    // shoes
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(cx - bodyW*0.3, groundY + bodyH*0.2 + step, bodyW*0.26, 5*s);
-    ctx.fillRect(cx + bodyW*0.04, groundY + bodyH*0.2 - step, bodyW*0.26, 5*s);
+    // arms swinging at the sides (drawn first, so shoulders tuck behind the shirt)
+    ctx.strokeStyle = '#f2c9a0'; ctx.lineWidth = 6*s; ctx.lineCap = 'round';
+    const shY = groundY - bodyH*0.52;
+    ctx.beginPath();
+    ctx.moveTo(cx - bodyW*0.46, shY);
+    ctx.lineTo(cx - bodyW*0.58, shY + bodyH*0.30 - swing*6*s);
+    ctx.moveTo(cx + bodyW*0.46, shY);
+    ctx.lineTo(cx + bodyW*0.58, shY + bodyH*0.30 + swing*6*s);
+    ctx.stroke();
 
-    // torso (shirt)
-    ctx.fillStyle = shirtColor;
-    rr(cx - bodyW/2, groundY - bodyH*0.65, bodyW, bodyH*0.7, 8*s);
+    // legs, alternating, with socks and sneakers
+    ctx.fillStyle = '#f2c9a0';
+    ctx.fillRect(cx - bodyW*0.28, groundY - bodyH*0.18, bodyW*0.20, bodyH*0.36 + step);
+    ctx.fillRect(cx + bodyW*0.08, groundY - bodyH*0.18, bodyW*0.20, bodyH*0.36 - step);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(cx - bodyW*0.30, groundY + bodyH*0.10 + step, bodyW*0.24, 6*s);
+    ctx.fillRect(cx + bodyW*0.06, groundY + bodyH*0.10 - step, bodyW*0.24, 6*s);
+    ctx.fillRect(cx - bodyW*0.32, groundY + bodyH*0.18 + step, bodyW*0.28, 5.5*s);
+    ctx.fillRect(cx + bodyW*0.04, groundY + bodyH*0.18 - step, bodyW*0.28, 5.5*s);
+    ctx.fillStyle = c.acc;
+    ctx.fillRect(cx - bodyW*0.32, groundY + bodyH*0.18 + step + 3.5*s, bodyW*0.28, 2*s);
+    ctx.fillRect(cx + bodyW*0.04, groundY + bodyH*0.18 - step + 3.5*s, bodyW*0.28, 2*s);
+
+    // skirt, swaying with the run
+    const sway = swing * 2.5 * s;
+    ctx.fillStyle = c.skirt;
+    ctx.beginPath();
+    ctx.moveTo(cx - bodyW*0.50, groundY - bodyH*0.30);
+    ctx.lineTo(cx + bodyW*0.50, groundY - bodyH*0.30);
+    ctx.lineTo(cx + bodyW*0.66 + sway, groundY - bodyH*0.02);
+    ctx.lineTo(cx - bodyW*0.66 + sway, groundY - bodyH*0.02);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.10)'; ctx.lineWidth = 1.5*s;
+    ctx.beginPath();
+    ctx.moveTo(cx - bodyW*0.66 + sway, groundY - bodyH*0.02);
+    ctx.lineTo(cx + bodyW*0.66 + sway, groundY - bodyH*0.02);
+    ctx.stroke();
+
+    // torso (shirt) + sleeve caps
+    ctx.fillStyle = c.shirt;
+    rr(cx - bodyW/2, groundY - bodyH*0.68, bodyW, bodyH*0.42, 8*s);
+    ctx.beginPath();
+    ctx.arc(cx - bodyW*0.46, shY, 5.5*s, 0, 7);
+    ctx.arc(cx + bodyW*0.46, shY, 5.5*s, 0, 7);
+    ctx.fill();
 
     // neck — sliver of skin between shirt and hair
     ctx.fillStyle = '#f2c9a0';
-    ctx.fillRect(cx - 4.5*s, groundY - bodyH*0.75, 9*s, 9*s);
-    // head — seen from behind, so it's ALL hair
-    const headY = groundY - bodyH*0.65 - headR*0.7;
-    ctx.fillStyle = hairColor;
-    ctx.beginPath(); ctx.arc(cx, headY, headR, 0, 7); ctx.fill();
-    // soft shine on the hair
-    ctx.fillStyle = 'rgba(255,255,255,0.16)';
-    ctx.beginPath(); ctx.arc(cx - headR*0.33, headY - headR*0.35, headR*0.3, 0, 7); ctx.fill();
+    ctx.fillRect(cx - 4.5*s, groundY - bodyH*0.78, 9*s, 11*s);
 
-    // PONYTAIL — the signature. Swings opposite to the step.
-    ctx.strokeStyle = hairColor; ctx.lineWidth = 7*s; ctx.lineCap='round';
-    const topX = cx, topY = groundY - bodyH*0.65 - headR*1.4;
-    const tipX = cx + swing * 10 * s;
-    const tipY = topY + 26*s + Math.abs(swing)*3*s;
+    // head — seen from behind, so it's ALL hair (shaded layer underneath)
+    const headY = groundY - bodyH*0.68 - headR*0.7;
+    ctx.fillStyle = c.shade;
+    ctx.beginPath(); ctx.arc(cx, headY + 1.5*s, headR*1.02, 0, 7); ctx.fill();
+    ctx.fillStyle = c.hair;
+    ctx.beginPath(); ctx.arc(cx, headY, headR, 0, 7); ctx.fill();
+    // side tufts for a bit of volume
+    ctx.beginPath();
+    ctx.arc(cx - headR*0.85, headY + headR*0.45, headR*0.32, 0, 7);
+    ctx.arc(cx + headR*0.85, headY + headR*0.45, headR*0.32, 0, 7);
+    ctx.fill();
+    // soft shine
+    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    ctx.beginPath(); ctx.arc(cx - headR*0.33, headY - headR*0.35, headR*0.34, 0, 7); ctx.fill();
+
+    // PONYTAIL — the signature. Two layers, swinging and bouncing with the step.
+    const topX = cx, topY = headY - headR*0.75;
+    const bounce = Math.abs(swing);
+    const tipX = cx + swing * 11 * s;
+    const tipY = topY + 28*s + bounce*4*s;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = c.shade; ctx.lineWidth = 8.5*s;
     ctx.beginPath();
     ctx.moveTo(topX, topY);
-    ctx.quadraticCurveTo(topX + swing*8*s, topY + 14*s, tipX, tipY);
+    ctx.quadraticCurveTo(topX + swing*9*s, topY + 15*s, tipX, tipY + 1.5*s);
+    ctx.stroke();
+    ctx.strokeStyle = c.hair; ctx.lineWidth = 6.5*s;
+    ctx.beginPath();
+    ctx.moveTo(topX, topY);
+    ctx.quadraticCurveTo(topX + swing*9*s, topY + 14*s, tipX, tipY);
     ctx.stroke();
     // hair tie
-    ctx.fillStyle = '#fff';
-    ctx.beginPath(); ctx.arc(topX, topY+2*s, 3.2*s, 0, 7); ctx.fill();
+    ctx.fillStyle = c.tie;
+    ctx.beginPath(); ctx.arc(topX, topY + 2*s, 3.4*s, 0, 7); ctx.fill();
   }
 
   function drawHUD() {
-    ctx.fillStyle = '#123'; ctx.font = '700 26px -apple-system, sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillText(String(score).padStart(5,'0'), 16, 40);
-    ctx.font = '600 13px -apple-system, sans-serif'; ctx.fillStyle = 'rgba(20,40,50,.7)';
-    ctx.fillText('BEST ' + String(best).padStart(5,'0'), 16, 60);
+    // score chip
+    ctx.fillStyle = 'rgba(255,255,255,0.82)';
+    rr(12, 12, 118, 52, 12);
+    ctx.fillStyle = '#1d3346';
+    ctx.font = '800 24px -apple-system, sans-serif'; ctx.textAlign = 'left';
+    ctx.fillText(String(score).padStart(5,'0'), 24, 38);
+    ctx.font = '700 11px -apple-system, sans-serif';
+    ctx.fillStyle = 'rgba(29,51,70,0.65)';
+    ctx.fillText('BEST ' + String(best).padStart(5,'0'), 24, 55);
 
-    if (state === 'menu' || state === 'over') {
-      ctx.fillStyle = 'rgba(10,20,40,0.45)'; ctx.fillRect(0,0,W,H);
+    drawMuteBtn();
+
+    if (state === 'paused') {
+      ctx.fillStyle = 'rgba(10,25,45,0.45)'; ctx.fillRect(0,0,W,H);
       ctx.textAlign = 'center';
       ctx.fillStyle = '#fff';
+      ctx.font = '800 34px -apple-system, sans-serif';
+      ctx.fillText('PAUSED', W/2, H*0.42);
+      ctx.font = '600 16px -apple-system, sans-serif';
+      ctx.fillStyle = 'rgba(255,255,255,.9)';
+      ctx.fillText('SPACE / tap to resume', W/2, H*0.42 + 34);
+      return;
+    }
+
+    if (state === 'menu' || state === 'over') {
+      ctx.fillStyle = 'rgba(10,25,45,0.32)'; ctx.fillRect(0,0,W,H);
+
+      // card
+      const cardY = state === 'over' ? H*0.22 : H*0.26;
+      const cardH = state === 'over' ? 232 : 120;
+      ctx.save();
+      ctx.shadowColor = 'rgba(15,35,60,0.35)'; ctx.shadowBlur = 28; ctx.shadowOffsetY = 8;
+      ctx.fillStyle = 'rgba(255,255,255,0.95)';
+      rr(W*0.09, cardY, W*0.82, cardH, 22);
+      ctx.restore();
+
+      // title: "Soso" pink, "&" dark, "Hip" blue
       ctx.font = '800 42px -apple-system, sans-serif';
-      ctx.fillText('Soso & Hip', W/2, H*0.34);
-      ctx.font = '800 30px -apple-system, sans-serif';
-      ctx.fillText('R U N', W/2, H*0.34 + 36);
+      const t1 = 'Soso', t2 = ' & ', t3 = 'Hip';
+      const w1 = ctx.measureText(t1).width, w2 = ctx.measureText(t2).width, w3 = ctx.measureText(t3).width;
+      let tx = W/2 - (w1+w2+w3)/2;
+      const titleY = cardY + 58;
+      ctx.textAlign = 'left';
+      ctx.fillStyle = SOSO.shirt; ctx.fillText(t1, tx, titleY); tx += w1;
+      ctx.fillStyle = '#2b3a4a';  ctx.fillText(t2, tx, titleY); tx += w2;
+      ctx.fillStyle = HIP.shirt;  ctx.fillText(t3, tx, titleY);
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#2b3a4a';
+      ctx.font = '800 22px -apple-system, sans-serif';
+      ctx.fillText('R U N', W/2, titleY + 30);
 
       if (state === 'over') {
-        ctx.font = '700 22px -apple-system, sans-serif';
-        ctx.fillText('Wiped out!  Score ' + score, W/2, H*0.52);
+        ctx.fillStyle = '#1d3346';
+        ctx.font = '700 18px -apple-system, sans-serif';
+        ctx.fillText('Wiped out!', W/2, titleY + 66);
+        ctx.font = '800 34px -apple-system, sans-serif';
+        ctx.fillText(String(score), W/2, titleY + 102);
+        ctx.font = '700 13px -apple-system, sans-serif';
+        ctx.fillStyle = 'rgba(29,51,70,0.6)';
+        ctx.fillText('BEST ' + best, W/2, titleY + 124);
         if (newBest && score > 0) {
-          ctx.fillStyle = '#ffd84d';
-          ctx.font = '800 26px -apple-system, sans-serif';
+          ctx.fillStyle = '#e8a800';
+          ctx.font = '800 22px -apple-system, sans-serif';
           const pulse = 1 + Math.sin(performance.now()/180) * 0.06;
-          ctx.save(); ctx.translate(W/2, H*0.47 - 40); ctx.scale(pulse, pulse);
+          ctx.save(); ctx.translate(W/2, titleY + 152); ctx.scale(pulse, pulse);
           ctx.fillText('★ NEW BEST! ★', 0, 0); ctx.restore();
         }
       }
-      ctx.font = '600 16px -apple-system, sans-serif';
-      ctx.fillStyle = 'rgba(255,255,255,.9)';
-      ctx.fillText(state==='over' ? 'SPACE / tap to run again' : 'SPACE / tap to start', W/2, H*0.6);
+
+      // prompt below the card, gently pulsing
+      const pa = 0.75 + Math.sin(performance.now()/300) * 0.2;
+      ctx.font = '600 17px -apple-system, sans-serif';
+      ctx.fillStyle = `rgba(255,255,255,${pa})`;
+      ctx.fillText(state==='over' ? 'SPACE / tap to run again' : 'SPACE / tap to start',
+                   W/2, cardY + cardH + 44);
     }
+  }
+
+  function drawMuteBtn() {
+    ctx.fillStyle = 'rgba(255,255,255,0.82)';
+    rr(MUTE.x, MUTE.y, MUTE.w, MUTE.h, 10);
+    const sx = MUTE.x + 15, sy = MUTE.y + MUTE.h/2;
+    ctx.fillStyle = '#1d3346';
+    ctx.fillRect(sx - 3, sy - 4.5, 6, 9);
+    ctx.beginPath();
+    ctx.moveTo(sx + 3, sy - 4.5); ctx.lineTo(sx + 9, sy - 10);
+    ctx.lineTo(sx + 9, sy + 10);  ctx.lineTo(sx + 3, sy + 4.5);
+    ctx.closePath(); ctx.fill();
+    if (!muted) {
+      ctx.strokeStyle = '#1d3346'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.arc(sx + 11, sy, 6, -0.7, 0.7); ctx.stroke();
+      ctx.beginPath(); ctx.arc(sx + 11, sy, 10, -0.6, 0.6); ctx.stroke();
+    } else {
+      ctx.strokeStyle = '#d94f4f'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(MUTE.x + 30, sy - 9); ctx.lineTo(MUTE.x + 40, sy + 9);
+      ctx.stroke();
+    }
+  }
+
+  // Offline support: cache the shell so the home-screen install works anywhere.
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+    addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
   }
 
   requestAnimationFrame(tick);
