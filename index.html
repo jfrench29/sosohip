@@ -94,6 +94,7 @@
   let bonus = 0, pickTimer = 0, landT = 0;
   let gameT = 0, nextMile = 500, pickCombo = 0, lastPickT = -10;
   let newBest = false;
+  let shield = false, invulnT = 0, shieldTimer = 12;
   best = parseInt(localStorage.getItem('sosohip_best') || '0', 10);
   let muted = localStorage.getItem('sosohip_mute') === '1';
 
@@ -124,6 +125,8 @@
     crash() { beep(220, 55, 0.42, 'sawtooth', 0.14); beep(160, 40, 0.5, 'square', 0.06, 0.05); },
     start() { beep(440, 880, 0.18, 'sine', 0.08); },
     mile()  { beep(660, 990, 0.09, 'sine', 0.09); beep(880, 1320, 0.12, 'sine', 0.09, 0.09); },
+    shieldUp()  { beep(520, 1040, 0.15, 'sine', 0.10); beep(780, 1560, 0.18, 'sine', 0.08, 0.10); },
+    shieldPop() { beep(400, 120, 0.25, 'square', 0.12); beep(900, 300, 0.20, 'sawtooth', 0.05, 0.02); },
   };
   function toggleMute() {
     muted = !muted;
@@ -174,6 +177,7 @@
     score = 0; bonus = 0; dist = 0; speed = 0.42;
     spawnTimer = 0; scenTimer = 0; pickTimer = 0; shakeT = 0; landT = 0;
     gameT = 0; nextMile = 500; pickCombo = 0; lastPickT = -10;
+    shield = false; invulnT = 0; shieldTimer = 12;
     obstacles.length = 0; scenery.length = 0; pickups.length = 0; parts.length = 0; popups.length = 0;
     player.lane = 0; player.y = 0; player.vy = 0; player.onGround = true; player.run = 0;
     for (let i = 0; i < 6; i++) spawnScenery(0.35 + i * 0.11);  // dress the menu backdrop
@@ -185,6 +189,7 @@
       score = 0; bonus = 0; dist = 0; speed = 0.42;
       spawnTimer = 0.6; scenTimer = 0.2; pickTimer = 2.2;
       gameT = 0; nextMile = 500; pickCombo = 0; lastPickT = -10;
+      shield = false; invulnT = 0; shieldTimer = 12;
       obstacles.length = 0; pickups.length = 0; parts.length = 0; popups.length = 0;
       player.y = 0; player.vy = 0; player.onGround = true;
       sfx.start();
@@ -317,6 +322,7 @@
       }
     }
     if (landT > 0) landT -= dt;
+    if (invulnT > 0) invulnT -= dt;
 
     // spawn — the 0.8s floor keeps back-to-back obstacles humanly jumpable
     spawnTimer -= dt;
@@ -340,7 +346,17 @@
         const cleared = player.y * 100 > jumpClear; // player.y in world units
         const laneClose = Math.abs(o.lane - player.lane) < 0.55;
         if (laneClose && !cleared) {
-          crash();
+          if (invulnT > 0) {
+            // still flashing from a shield save — brush past unharmed
+          } else if (shield) {
+            shield = false; invulnT = 1.2;
+            shakeT = 0.15;
+            sfx.shieldPop();
+            puff(VPX, feetY() - 40, 14, 'rgba(130,220,255,0.9)', 170, 110);
+            popup(VPX, feetY() - 100, 'SAVED!', '#7fe3ff', 26);
+          } else {
+            crash();
+          }
         } else if (laneClose && cleared) {
           // near-miss bonus: you jumped something that would have hit you
           bonus += 10;
@@ -354,21 +370,40 @@
     // golden golf balls — spawn, approach, collect (streaks build a combo)
     pickTimer -= dt;
     if (pickTimer <= 0) {
-      pickups.push({ pickup: true, z: 1.0, lane: Math.random()*1.1 - 0.55, taken: false });
+      pickups.push({ pickup: true, kind: 'gold', z: 1.0, lane: Math.random()*1.1 - 0.55, taken: false });
       pickTimer = 1.4 * (0.6 + Math.random());
+    }
+    // shield bubbles — rare; one saved hit each
+    shieldTimer -= dt;
+    if (shieldTimer <= 0) {
+      pickups.push({ pickup: true, kind: 'shield', z: 1.0, lane: Math.random()*1.1 - 0.55, taken: false });
+      shieldTimer = 16 + Math.random() * 12;
     }
     for (const p of pickups) {
       p.z -= worldDz;
       if (!p.taken && p.z <= PLAYER_Z + 0.01 && Math.abs(p.lane - player.lane) < 0.5) {
         p.taken = true;
-        pickCombo = (gameT - lastPickT < 2.5) ? Math.min(pickCombo + 1, 5) : 1;
-        lastPickT = gameT;
-        const gain = 25 * pickCombo;
-        bonus += gain;
-        sfx.pick();
         const px = projX(p.lane, PLAYER_Z);
-        puff(px, feetY() - 30, 10, 'rgba(255,215,80,0.95)', 120, 90);
-        popup(px, feetY() - 70, '+' + gain + (pickCombo > 1 ? '  ×' + pickCombo : ''), '#ffd84d');
+        if (p.kind === 'shield') {
+          if (!shield) {
+            shield = true;
+            sfx.shieldUp();
+            popup(px, feetY() - 70, 'SHIELD!', '#7fe3ff');
+          } else {
+            bonus += 50;   // already bubbled — cash it in instead
+            sfx.pick();
+            popup(px, feetY() - 70, '+50', '#7fe3ff');
+          }
+          puff(px, feetY() - 30, 12, 'rgba(130,220,255,0.9)', 130, 90);
+        } else {
+          pickCombo = (gameT - lastPickT < 2.5) ? Math.min(pickCombo + 1, 5) : 1;
+          lastPickT = gameT;
+          const gain = 25 * pickCombo;
+          bonus += gain;
+          sfx.pick();
+          puff(px, feetY() - 30, 10, 'rgba(255,215,80,0.95)', 120, 90);
+          popup(px, feetY() - 70, '+' + gain + (pickCombo > 1 ? '  ×' + pickCombo : ''), '#ffd84d');
+        }
       }
     }
     for (let i = pickups.length - 1; i >= 0; i--) if (pickups[i].taken || pickups[i].z < -0.1) pickups.splice(i,1);
@@ -527,8 +562,25 @@
     const x = projX(p.lane, p.z);
     const gy = projY(p.z);
     const bob = Math.sin(dist*0.15 + p.lane*7) * 4 * s;
-    const r = 11 * s;
     ctx.save();
+    if (p.kind === 'shield') {
+      // floating shield bubble
+      const r = 13 * s;
+      const cy = gy - r - 5*s - bob;
+      ctx.fillStyle = 'rgba(0,0,0,0.15)';
+      ctx.beginPath(); ctx.ellipse(x, gy, r*0.9, r*0.32, 0, 0, 7); ctx.fill();
+      ctx.shadowColor = 'rgba(120,220,255,0.9)'; ctx.shadowBlur = 12*s;
+      ctx.fillStyle = 'rgba(140,225,255,0.35)';
+      ctx.beginPath(); ctx.arc(x, cy, r, 0, 7); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = '#7fe3ff'; ctx.lineWidth = Math.max(1.5, 2.5*s);
+      ctx.beginPath(); ctx.arc(x, cy, r, 0, 7); ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = Math.max(1, 2*s);
+      ctx.beginPath(); ctx.arc(x, cy, r*0.62, -2.2, -0.9); ctx.stroke();
+      ctx.restore();
+      return;
+    }
+    const r = 11 * s;
     ctx.fillStyle = 'rgba(0,0,0,0.15)';
     ctx.beginPath(); ctx.ellipse(x, gy, r*0.9, r*0.32, 0, 0, 7); ctx.fill();
     // golden ball with glow + shine
@@ -737,8 +789,22 @@
     const anchor = projY(z);   // scale about the ground line so feet stay planted
     ctx.save();
     ctx.translate(VPX, anchor); ctx.scale(sx, sy); ctx.translate(-VPX, -anchor);
+    // post-save flicker while briefly invulnerable
+    if (invulnT > 0) ctx.globalAlpha = Math.sin(performance.now()/50) > 0 ? 0.45 : 0.9;
     drawGirl(VPX - gap/2, baseY, s, SOSO);
     drawGirl(VPX + gap/2, baseY, s, HIP);
+    ctx.globalAlpha = 1;
+    // shield bubble wrapping both sisters
+    if (shield) {
+      const pul = Math.sin(performance.now()/150) * 1.5;
+      const bx = VPX, by = baseY - 30*s;
+      ctx.fillStyle = 'rgba(130,220,255,0.13)';
+      ctx.beginPath(); ctx.ellipse(bx, by, (64+pul)*s, (54+pul)*s, 0, 0, 7); ctx.fill();
+      ctx.strokeStyle = 'rgba(150,230,255,0.85)'; ctx.lineWidth = 2.5*s;
+      ctx.beginPath(); ctx.ellipse(bx, by, (64+pul)*s, (54+pul)*s, 0, 0, 7); ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 2*s;
+      ctx.beginPath(); ctx.ellipse(bx, by, 48*s, 40*s, 0, -2.3, -1.3); ctx.stroke();
+    }
     ctx.restore();
   }
 
@@ -851,6 +917,16 @@
     ctx.fillStyle = 'rgba(29,51,70,0.65)';
     ctx.fillText('BEST ' + String(best).padStart(5,'0'), 24, 55);
 
+    // active-shield indicator beside the score chip
+    if (shield && (state === 'play' || state === 'paused')) {
+      ctx.fillStyle = 'rgba(140,225,255,0.35)';
+      ctx.beginPath(); ctx.arc(152, 38, 12, 0, 7); ctx.fill();
+      ctx.strokeStyle = '#59c8f0'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(152, 38, 12, 0, 7); ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(152, 38, 7.5, -2.2, -0.9); ctx.stroke();
+    }
+
     drawMuteBtn();
 
     if (state === 'paused') {
@@ -870,7 +946,7 @@
 
       // card
       const cardY = state === 'over' ? H*0.22 : H*0.26;
-      const cardH = state === 'over' ? 232 : 120;
+      const cardH = state === 'over' ? 232 : 178;
       ctx.save();
       ctx.shadowColor = 'rgba(15,35,60,0.35)'; ctx.shadowBlur = 28; ctx.shadowOffsetY = 8;
       ctx.fillStyle = 'rgba(255,255,255,0.95)';
@@ -891,6 +967,33 @@
       ctx.fillStyle = '#2b3a4a';
       ctx.font = '800 22px -apple-system, sans-serif';
       ctx.fillText('R U N', W/2, titleY + 30);
+
+      if (state === 'menu') {
+        // how-to legend: gold = collect, white = jump, bubble = free bump
+        ctx.font = '600 15px -apple-system, sans-serif';
+        ctx.textAlign = 'left';
+        const ly = titleY + 66, ly2 = ly + 28;
+        ctx.save();
+        ctx.shadowColor = 'rgba(255,210,60,0.8)'; ctx.shadowBlur = 8;
+        ctx.fillStyle = '#ffd84d';
+        ctx.beginPath(); ctx.arc(W/2 - 102, ly - 5, 8, 0, 7); ctx.fill();
+        ctx.restore();
+        ctx.fillStyle = '#d99a00';
+        ctx.fillText('collect', W/2 - 88, ly);
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath(); ctx.arc(W/2 + 22, ly - 5, 8, 0, 7); ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(W/2 + 22, ly - 5, 8, 0, 7); ctx.stroke();
+        ctx.fillStyle = '#2b3a4a';
+        ctx.fillText('jump!', W/2 + 36, ly);
+        ctx.fillStyle = 'rgba(140,225,255,0.4)';
+        ctx.beginPath(); ctx.arc(W/2 - 102, ly2 - 5, 8, 0, 7); ctx.fill();
+        ctx.strokeStyle = '#59c8f0'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(W/2 - 102, ly2 - 5, 8, 0, 7); ctx.stroke();
+        ctx.fillStyle = '#2380a8';
+        ctx.fillText('one free bump!', W/2 - 88, ly2);
+        ctx.textAlign = 'center';
+      }
 
       if (state === 'over') {
         ctx.fillStyle = '#1d3346';

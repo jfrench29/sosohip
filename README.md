@@ -12,6 +12,8 @@ golfers. Collect golden golf balls for bonus points. How far can they get?
 - **M** or the speaker button — mute
 - Collect golden balls in quick succession for combo multipliers; clearing an
   obstacle by jumping earns a +10 near-miss bonus.
+- Grab a floating blue bubble for a shield: it absorbs one hit (grabbing a
+  second while shielded pays +50 instead).
 - Works on desktop and phones; on iOS use *Share → Add to Home Screen* for
   fullscreen app mode (plays offline once installed).
 
