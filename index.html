@@ -309,25 +309,27 @@
     deer:  { t:'deer',  w:70, h:80,  clr:'#a9713e' },
     golfer:{ t:'golfer',w:60, h:120, clr:'#2f6f4e' },
     sprink:{ t:'sprink',w:44, h:30,  clr:'#8fd0ff' },
-    goose: { t:'goose', w:44, h:52,  clr:'#f4f4f4' },
-    flyer: { t:'flyer', w:56, h:40,  clr:'#f4f4f4', mode:'duck' },
+    goose: { t:'goose', w:56, h:62,  clr:'#f4f4f4' },
+    flyer: { t:'flyer', w:72, h:50,  clr:'#f4f4f4', mode:'duck' },
   };
   const GROUND_KINDS = ['ball','ball','deer','golfer','sprink','goose'];
   function rndOf(a) { return a[(Math.random()*a.length)|0]; }
   function rndLi() { return ((Math.random()*3)|0) - 1; }          // -1, 0, 1
+  // biased toward the player's current lane so cruising straight isn't free
+  function rndLiP() { return Math.random() < 0.45 ? laneIdx - 1 : rndLi(); }
   function laneVal(li) { return li * 0.62 + (Math.random()-0.5)*0.06; }
 
   // Hand-authored obstacle patterns: {min: speed gate, w: weight, ev: () => events}
   // Event times are seconds between arrivals at the player — authored to stay fair.
   const PATTERNS = [
-    { min:0,    w:3,   ev:()=>[{t:0, k:rndOf(GROUND_KINDS), l:rndLi()}] },
+    { min:0,    w:2,   ev:()=>[{t:0, k:rndOf(GROUND_KINDS), l:rndLiP()}] },
     { min:0,    w:2,   ev:()=>{ const l=rndLi(); return [{t:0,k:'gold',l},{t:0.35,k:'gold',l},{t:0.7,k:'gold',l}]; } },
-    { min:0.46, w:2,   ev:()=>[{t:0, k:rndOf(GROUND_KINDS), l:-1},{t:0.9, k:rndOf(GROUND_KINDS), l:1}] },
+    { min:0.44, w:2,   ev:()=>[{t:0, k:rndOf(GROUND_KINDS), l:-1},{t:0.9, k:rndOf(GROUND_KINDS), l:1}] },
     { min:0.5,  w:2,   ev:()=>[{t:0,k:'ball',l:-1},{t:0.8,k:'ball',l:0},{t:1.6,k:'ball',l:1}] },
-    { min:0.5,  w:2,   ev:()=>[{t:0, k:'flyer', l:rndLi()}] },
+    { min:0.47, w:2,   ev:()=>[{t:0, k:'flyer', l:rndLiP()}] },
     { min:0.52, w:1.5, ev:()=>{ const open=rndLi(), k=rndOf(GROUND_KINDS);
         return [-1,0,1].filter(l=>l!==open).map(l=>({t:0,k,l})); } },
-    { min:0.58, w:1.5, ev:()=>{ const l=rndLi(); return [{t:0,k:'ball',l},{t:1.1,k:'flyer',l}]; } },
+    { min:0.58, w:1.5, ev:()=>{ const l=rndLiP(); return [{t:0,k:'ball',l},{t:1.1,k:'flyer',l}]; } },
     { min:0.5,  w:1.5, ev:()=>[{t:0,k:'goose',l:-1},{t:0.7,k:'goose',l:1}] },
     { min:0.55, w:1.5, ev:()=>{ const a=rndLi(); let b=rndLi(); if(b===a) b=(a===1?-1:a+1);
         return [{t:0,k:'ball',l:a},{t:0,k:'gold',l:b},{t:0.9,k:'deer',l:b}]; } },
@@ -559,7 +561,7 @@
       for (let i = pq.length - 1; i >= 0; i--) {
         if (pq[i].at <= patT) { spawnEvent(pq[i]); pq.splice(i, 1); }
       }
-      if (!pq.length) patternGap = Math.max(0.85, 1.6 - speed*0.4) * (0.8 + Math.random()*0.5);
+      if (!pq.length) patternGap = Math.max(0.75, 1.35 - speed*0.4) * (0.78 + Math.random()*0.45);
     } else {
       patternGap -= dt;
       if (patternGap <= 0) startPattern();
