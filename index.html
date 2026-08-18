@@ -75,8 +75,9 @@
   const HORIZON = H * 0.34;
   const VPX = W / 2;
   const PLAYER_Z = 0.06;
-  const PATH_NEAR_HALF = 150;
+  const PATH_NEAR_HALF = 180;
   const PATH_FAR_HALF = 8;
+  const ZOOM = 1.22;   // visual scale for actors; collision math stays in world units
 
   function projY(z) { return HORIZON + (H - HORIZON) * (1 - z); }
   function scaleAt(z) { return 1 - z; }
@@ -350,7 +351,7 @@
   function spawnScenery(z) {
     const t = SCENERY[(Math.random() * SCENERY.length) | 0];
     const side = Math.random() < 0.5 ? -1 : 1;
-    const lane = side * (1.45 + Math.random() * 2.6);
+    const lane = side * (1.32 + Math.random() * 2.0);
     scenery.push({ scenery: true, t, z: z != null ? z : 1.0, lane, side, seed: Math.random() });
   }
 
@@ -404,8 +405,8 @@
       if (boost === 'tap') { tapBoostT = 0.10; holding = false; }
       else { holding = true; holdT = 0.18; }
       sfx.jump();
-      puff(playerX() - 23, feetY(), 5, 'rgba(200,190,170,0.8)', 60, 40);
-      puff(playerX() + 23, feetY(), 5, 'rgba(200,190,170,0.8)', 60, 40);
+      puff(playerX() - 28, feetY(), 5, 'rgba(200,190,170,0.8)', 60, 40);
+      puff(playerX() + 28, feetY(), 5, 'rgba(200,190,170,0.8)', 60, 40);
     }
   }
   function steer(dir) {
@@ -543,8 +544,8 @@
       if (player.y <= 0) {
         player.y = 0; player.vy = 0; player.onGround = true; springT = false;
         landT = 0.11; sfx.land();
-        puff(playerX() - 23, feetY(), 4, 'rgba(200,190,170,0.7)', 70, 30);
-        puff(playerX() + 23, feetY(), 4, 'rgba(200,190,170,0.7)', 70, 30);
+        puff(playerX() - 28, feetY(), 4, 'rgba(200,190,170,0.7)', 70, 30);
+        puff(playerX() + 28, feetY(), 4, 'rgba(200,190,170,0.7)', 70, 30);
       }
     }
     if (landT > 0) landT -= dt;
@@ -825,7 +826,7 @@
   }
 
   function drawPickup(p) {
-    const s = scaleAt(p.z);
+    const s = scaleAt(p.z) * ZOOM;
     if (s <= 0.02) return;
     const x = projX(p.lane, p.z);
     const gy = projY(p.z);
@@ -910,7 +911,7 @@
   }
 
   function drawObstacle(o) {
-    const s = scaleAt(o.z);
+    const s = scaleAt(o.z) * ZOOM;
     if (s <= 0.02) return;
     const x = projX(o.lane, o.z);
     const groundY = projY(o.z);
@@ -1144,7 +1145,7 @@
     if (state === 'menu') { drawSistersFront(); return; }
     if (state === 'over') { drawSistersSitting(); return; }
     const z = PLAYER_Z;
-    const s = scaleAt(z);
+    const s = scaleAt(z) * ZOOM;
     const px = playerX();
     const baseY = projY(z) - player.y * 100 * s;
     const gap = 46 * s;
@@ -1354,7 +1355,7 @@
   }
 
   function drawSistersFront() {
-    const s = scaleAt(PLAYER_Z);
+    const s = scaleAt(PLAYER_Z) * ZOOM;
     const gy = feetY();
     const gap = 52 * s;
     drawGirlFront(VPX - gap/2, gy, s, SOSO, false);
@@ -1420,7 +1421,7 @@
   }
 
   function drawSistersSitting() {
-    const s = scaleAt(PLAYER_Z);
+    const s = scaleAt(PLAYER_Z) * ZOOM;
     const gy = feetY();
     const gap = 52 * s;
     drawGirlSit(VPX - gap/2, gy, s, SOSO, -1);
